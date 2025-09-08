@@ -1,0 +1,99 @@
+# Sistema de Controle de Materiais - Docker Compose
+# Para rodar o sistema completo com frontend e backend
+
+version: '3.8'
+
+services:
+  # Frontend React/Vite
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:3001
+      - VITE_APP_NAME=Sistema de Controle de Materiais
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+      - database
+    networks:
+      - app-network
+
+  # Backend Node.js/Express (exemplo)
+  # TODO: Implementar o backend
+  backend:
+    # Descomentar quando implementar o backend
+    # build:
+    #   context: ./backend
+    #   dockerfile: Dockerfile
+    image: node:18-alpine
+    command: sh -c "echo 'Backend em desenvolvimento' && sleep infinity"
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://admin:123456@database:5432/controle_materiais
+      - JWT_SECRET=sua_chave_secreta_aqui
+      - PORT=3001
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      - database
+    networks:
+      - app-network
+
+  # Banco de Dados PostgreSQL
+  database:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=123456
+      - POSTGRES_DB=controle_materiais
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-network
+
+  # Redis para cache e sessões
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
+  # Adminer para gerenciar o banco
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=database
+    depends_on:
+      - database
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  app-network:
+    driver: bridge
+
+# Comandos úteis:
+# docker-compose up -d          # Iniciar todos os serviços
+# docker-compose logs frontend  # Ver logs do frontend
+# docker-compose down           # Parar todos os serviços
+# docker-compose restart frontend # Reiniciar apenas o frontend
