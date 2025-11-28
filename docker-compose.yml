@@ -12,8 +12,6 @@
 # 
 # ==============================================================================
 
-version: '3.8'
-
 services:
   # ============================================================================
   # BANCO DE DADOS - PostgreSQL
@@ -148,7 +146,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.frontend
       # Multi-stage build para imagem otimizada
       # Stage 1: Build da aplicação
       # Stage 2: Nginx para servir arquivos estáticos
