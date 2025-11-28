@@ -1,0 +1,209 @@
+# ==============================================================================
+# Python Dependencies - Backend FastAPI
+# ==============================================================================
+# 
+# Organização por categoria para melhor entendimento
+# Versões fixadas para reproducibilidade
+# 
+# ==============================================================================
+
+# ==============================================================================
+# CORE - Framework Web
+# ==============================================================================
+
+# FastAPI - Framework web moderno e rápido
+fastapi==0.109.0
+# Por quê? Async nativo, validação automática, docs automáticas
+
+# Uvicorn - Servidor ASGI
+uvicorn[standard]==0.27.0
+# [standard]: Inclui dependências opcionais (uvloop, httptools)
+# Por quê? Performance 2-3x melhor que alternativas
+
+# Pydantic - Validação de dados
+pydantic==2.5.3
+# Já vem com FastAPI, mas especificamos versão explícita
+# Por quê? Type hints + validação automática
+
+# Python-multipart - Upload de arquivos
+python-multipart==0.0.6
+# Necessário para UploadFile do FastAPI
+
+
+# ==============================================================================
+# BANCO DE DADOS
+# ==============================================================================
+
+# SQLAlchemy - ORM (Object Relational Mapping)
+sqlalchemy==2.0.25
+# Por quê? Abstração do banco, prevenção de SQL injection
+
+# Psycopg2 - Driver PostgreSQL
+psycopg2-binary==2.9.9
+# Por quê? Conexão com PostgreSQL
+# Nota: Em produção, considere psycopg2 (sem -binary) para melhor performance
+
+
+# ==============================================================================
+# AUTENTICAÇÃO E SEGURANÇA
+# ==============================================================================
+
+# PyJWT - JSON Web Tokens
+pyjwt==2.8.0
+# Por quê? Autenticação stateless
+
+# Passlib - Hashing de senhas
+passlib[bcrypt]==1.7.4
+# [bcrypt]: Inclui bcrypt para hashing
+# Por quê? Bcrypt é considerado o mais seguro para senhas
+
+# Python-jose - JOSE (JSON Object Signing and Encryption)
+python-jose[cryptography]==3.3.0
+# Alternativa ao PyJWT, mais features
+# Escolha um dos dois (PyJWT OU python-jose)
+
+# Bcrypt - Hashing de senhas (dependency do passlib)
+bcrypt==4.1.2
+
+
+# ==============================================================================
+# UTILITÁRIOS
+# ==============================================================================
+
+# Python-dotenv - Variáveis de ambiente
+python-dotenv==1.0.0
+# Por quê? Carregar .env files (importante em desenvolvimento)
+
+# QRCode - Geração de QR Codes
+qrcode[pil]==7.4.2
+# [pil]: Pillow para gerar imagens
+# Por quê? Core feature do sistema
+
+# Pillow - Manipulação de imagens
+Pillow==10.2.0
+# Dependency do qrcode, mas especificamos para garantir versão
+
+
+# ==============================================================================
+# EXCEL/CSV (EXPORT)
+# ==============================================================================
+
+# OpenPyXL - Leitura/escrita de arquivos Excel
+openpyxl==3.1.2
+# Por quê? Export de lista de materiais em Excel
+
+# XlsxWriter - Alternativa para Excel (mais rápido)
+xlsxwriter==3.1.9
+# Escolha OpenPyXL OU XlsxWriter
+# OpenPyXL: Lê e escreve, mais features
+# XlsxWriter: Apenas escreve, mais rápido
+
+
+# ==============================================================================
+# DESENVOLVIMENTO E TESTES
+# ==============================================================================
+
+# Pytest - Framework de testes
+pytest==7.4.4
+# pytest-asyncio==0.23.3  # Para testar código async
+# pytest-cov==4.1.0        # Cobertura de testes
+
+# Black - Formatador de código
+# black==23.12.1
+
+# Flake8 - Linter
+# flake8==7.0.0
+
+# MyPy - Type checker
+# mypy==1.8.0
+
+# Descomente para usar em desenvolvimento:
+# pip install -r requirements.txt
+# pip install -r requirements-dev.txt
+
+
+# ==============================================================================
+# MONITORAMENTO E OBSERVABILIDADE (OPCIONAL)
+# ==============================================================================
+
+# Prometheus Client - Métricas
+# prometheus-client==0.19.0
+
+# Sentry - Error tracking
+# sentry-sdk[fastapi]==1.40.0
+
+# Loguru - Logging melhorado
+# loguru==0.7.2
+
+
+# ==============================================================================
+# MIGRATIONS (OPCIONAL, MAS RECOMENDADO PARA PRODUÇÃO)
+# ==============================================================================
+
+# Alembic - Database migrations
+# alembic==1.13.1
+# 
+# Uso:
+# alembic init alembic
+# alembic revision --autogenerate -m "Initial migration"
+# alembic upgrade head
+
+
+# ==============================================================================
+# NOTAS IMPORTANTES
+# ==============================================================================
+# 
+# 1. VERSIONAMENTO:
+#    - Versões fixadas (==) garantem reproducibilidade
+#    - Em produção, teste TODAS as atualizações
+#    - Use dependabot ou renovate para atualizações automáticas
+# 
+# 2. SECURITY:
+#    - Rode regularmente: pip-audit ou safety check
+#    - Mantenha dependências atualizadas
+#    - Monitore CVEs (Common Vulnerabilities and Exposures)
+# 
+# 3. PERFORMANCE:
+#    - psycopg2-binary é mais lento que psycopg2
+#    - Para produção alta performance: compile psycopg2 from source
+#    - Considere usar uvloop (incluído em uvicorn[standard])
+# 
+# 4. INSTALAÇÃO:
+#    pip install -r requirements.txt
+#    
+#    Para ambiente de desenvolvimento:
+#    pip install -r requirements.txt -r requirements-dev.txt
+# 
+# 5. AMBIENTE VIRTUAL:
+#    Sempre use venv ou virtualenv:
+#    python -m venv venv
+#    source venv/bin/activate  # Linux/Mac
+#    venv\Scripts\activate     # Windows
+#    pip install -r requirements.txt
+# 
+# ==============================================================================
+
+
+# ==============================================================================
+# ALTERNATIVAS E COMPARAÇÕES
+# ==============================================================================
+# 
+# FastAPI vs Flask:
+# ✅ FastAPI: Async nativo, mais rápido, docs automáticas, type hints
+# ❌ Flask: Síncrono, mais simples, mais maduro, mais extensões
+# 
+# SQLAlchemy vs Django ORM:
+# ✅ SQLAlchemy: Mais flexível, suporta qualquer banco, mais controle
+# ❌ Django ORM: Mais simples, menos boilerplate, tied to Django
+# 
+# Psycopg2 vs Asyncpg:
+# ✅ Psycopg2: Maduro, amplamente usado, sync
+# ✅ Asyncpg: Mais rápido (3-5x), async, menos features
+# Escolha: Psycopg2 para começar, Asyncpg para otimizar depois
+# 
+# PyJWT vs Python-jose:
+# ✅ PyJWT: Mais simples, apenas JWT
+# ✅ Python-jose: Mais features (JWE, JWS), JOSE completo
+# Escolha: PyJWT para maioria dos casos
+# 
+# ==============================================================================

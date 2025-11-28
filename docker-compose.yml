@@ -1,99 +1,318 @@
-# Sistema de Controle de Materiais - Docker Compose
-# Para rodar o sistema completo com frontend e backend
+# ==============================================================================
+# Docker Compose - Sistema de Controle de Materiais
+# ==============================================================================
+# 
+# Serviços:
+# 1. db        - PostgreSQL (banco de dados)
+# 2. backend   - FastAPI (API REST)
+# 3. frontend  - React + Vite (interface web)
+# 
+# Rede: bridge network para comunicação entre containers
+# Volumes: persistência de dados do PostgreSQL
+# 
+# ==============================================================================
 
 version: '3.8'
 
 services:
-  # Frontend React/Vite
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:3001
-      - VITE_APP_NAME=Sistema de Controle de Materiais
-    volumes:
-      - .:/app
-      - /app/node_modules
-    depends_on:
-      - backend
-      - database
-    networks:
-      - app-network
-
-  # Backend Node.js/Express (exemplo)
-  # TODO: Implementar o backend
-  backend:
-    # Descomentar quando implementar o backend
-    # build:
-    #   context: ./backend
-    #   dockerfile: Dockerfile
-    image: node:18-alpine
-    command: sh -c "echo 'Backend em desenvolvimento' && sleep infinity"
-    ports:
-      - "3001:3001"
-    environment:
-      - NODE_ENV=development
-      - DATABASE_URL=postgresql://admin:123456@database:5432/controle_materiais
-      - JWT_SECRET=sua_chave_secreta_aqui
-      - PORT=3001
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-    depends_on:
-      - database
-    networks:
-      - app-network
-
-  # Banco de Dados PostgreSQL
-  database:
+  # ============================================================================
+  # BANCO DE DADOS - PostgreSQL
+  # ============================================================================
+  db:
     image: postgres:15-alpine
+    # Por que Alpine? Imagem 5x menor (40MB vs 200MB)
+    # Versão 15: Versão estável e moderna do PostgreSQL
+    
+    container_name: material_db
+    
+    restart: unless-stopped
+    # Reinicia automaticamente, exceto se parado manualmente
+    # Importante para ambientes de produção/staging
+    
+    environment:
+      # Variáveis de ambiente do PostgreSQL
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: material_control
+      # ⚠️ EM PRODUÇÃO: Use secrets, nunca hardcode!
+      
+      # Configurações de performance
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=pt_BR.UTF-8"
+      # UTF8: Suporte a caracteres especiais (ç, á, ã, etc)
+      # Locale PT_BR: Ordenação correta em português
+    
     ports:
       - "5432:5432"
-    environment:
-      - POSTGRES_USER=admin
-      - POSTGRES_PASSWORD=123456
-      - POSTGRES_DB=controle_materiais
+      # Porta exposta para acesso externo (opcional)
+      # Útil para ferramentas como DBeaver, pgAdmin
+      # Em produção, remova para maior segurança
+    
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Volume nomeado: dados persistem mesmo após parar container
+      # Sem volume = dados são perdidos ao recriar container!
+      
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      # (Opcional) Script SQL executado na primeira inicialização
+      # Útil para seeds, fixtures, ou configurações iniciais
+    
+    healthcheck:
+      # Health check para garantir que o banco está pronto
+      # Importante para orchestração (K8s) e deployment
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    
     networks:
-      - app-network
+      - material_network
+    
+    # Configurações de recursos (opcional, mas recomendado)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1'
+    #       memory: 512M
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 256M
 
-  # Redis para cache e sessões
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - app-network
-
-  # Adminer para gerenciar o banco
-  adminer:
-    image: adminer
-    ports:
-      - "8080:8080"
-    environment:
-      - ADMINER_DEFAULT_SERVER=database
+  # ============================================================================
+  # BACKEND - FastAPI
+  # ============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend
+      # Build da imagem a partir do Dockerfile local
+      # Permite customização completa
+      
+      # args:  # Build arguments (opcional)
+      #   PYTHON_VERSION: 3.11
+    
+    container_name: material_backend
+    
+    restart: unless-stopped
+    
     depends_on:
-      - database
+      db:
+        condition: service_healthy
+      # Aguarda o banco estar saudável antes de iniciar
+      # Previne erros de "connection refused"
+    
+    environment:
+      # Configurações da aplicação
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/material_control
+      # ⚠️ Note o host 'db' - é o nome do serviço Docker!
+      
+      SECRET_KEY: sua-chave-secreta-super-segura-${RANDOM_SUFFIX:-123456}
+      # Em produção, use: ${SECRET_KEY} de arquivo .env
+      
+      # Configurações opcionais
+      LOG_LEVEL: INFO
+      ENVIRONMENT: development
+      CORS_ORIGINS: http://localhost:5173,http://localhost:80
+    
+    ports:
+      - "8000:8000"
+      # Porta 8000 exposta para acesso à API
+      # Acesse: http://localhost:8000/docs
+    
+    volumes:
+      - ./backend:/app
+      # Montagem do código fonte (hot reload em desenvolvimento)
+      # Em produção, remova para usar código do build
+      
+      - backend_logs:/app/logs
+      # Volume para logs persistentes
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
     networks:
-      - app-network
+      - material_network
+    
+    # Labels para monitoramento (Prometheus, Grafana)
+    labels:
+      - "com.example.service=backend"
+      - "com.example.environment=development"
 
+  # ============================================================================
+  # FRONTEND - React + Vite
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # Multi-stage build para imagem otimizada
+      # Stage 1: Build da aplicação
+      # Stage 2: Nginx para servir arquivos estáticos
+    
+    container_name: material_frontend
+    
+    restart: unless-stopped
+    
+    depends_on:
+      - backend
+      # Frontend depende do backend estar rodando
+    
+    environment:
+      VITE_API_URL: http://localhost:8000
+      # URL da API para o frontend consumir
+      # ⚠️ Ajuste conforme seu setup (localhost, IP, domínio)
+    
+    ports:
+      - "80:80"
+      # Porta 80 (HTTP) exposta
+      # Acesse: http://localhost
+      
+      # Para HTTPS (produção):
+      # - "443:443"
+      # + volume com certificados SSL
+    
+    volumes:
+      # Para desenvolvimento com hot reload:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      
+      # Para produção, remova volumes e use imagem buildada
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    networks:
+      - material_network
+    
+    labels:
+      - "com.example.service=frontend"
+      - "com.example.environment=development"
+
+# ==============================================================================
+# VOLUMES
+# ==============================================================================
 volumes:
   postgres_data:
-  redis_data:
+    # Volume nomeado para dados do PostgreSQL
+    # Persiste dados entre restarts
+    # Localização: /var/lib/docker/volumes/
+    driver: local
+  
+  backend_logs:
+    # Volume para logs do backend
+    driver: local
 
+# ==============================================================================
+# NETWORKS
+# ==============================================================================
 networks:
-  app-network:
+  material_network:
+    # Rede bridge customizada
+    # Permite comunicação entre containers pelo nome
+    # Isolamento de outros containers
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          # Subnet customizada (opcional)
+          # Útil para controle de IPs
 
-# Comandos úteis:
-# docker-compose up -d          # Iniciar todos os serviços
-# docker-compose logs frontend  # Ver logs do frontend
-# docker-compose down           # Parar todos os serviços
-# docker-compose restart frontend # Reiniciar apenas o frontend
+
+# ==============================================================================
+# COMANDOS ÚTEIS
+# ==============================================================================
+# 
+# Iniciar tudo:
+#   docker-compose up -d
+# 
+# Ver logs:
+#   docker-compose logs -f [serviço]
+# 
+# Parar tudo:
+#   docker-compose down
+# 
+# Reconstruir imagens:
+#   docker-compose build [serviço]
+#   docker-compose up -d --build
+# 
+# Executar comandos no container:
+#   docker-compose exec backend bash
+#   docker-compose exec db psql -U postgres
+# 
+# Ver status:
+#   docker-compose ps
+# 
+# Remover volumes (⚠️ DELETA DADOS!):
+#   docker-compose down -v
+# 
+# Ver uso de recursos:
+#   docker stats
+# 
+# ==============================================================================
+
+
+# ==============================================================================
+# CONFIGURAÇÃO PARA PRODUÇÃO
+# ==============================================================================
+# 
+# Criar arquivo docker-compose.prod.yml:
+# 
+# version: '3.8'
+# services:
+#   backend:
+#     environment:
+#       - DATABASE_URL=${DATABASE_URL}
+#       - SECRET_KEY=${SECRET_KEY}
+#       - ENVIRONMENT=production
+#     volumes: []  # Remove hot reload
+#     deploy:
+#       replicas: 3  # Múltiplas instâncias
+#       resources:
+#         limits:
+#           cpus: '0.5'
+#           memory: 512M
+#   
+#   frontend:
+#     volumes: []  # Remove hot reload
+#     deploy:
+#       replicas: 2
+# 
+# Usar:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 
+# ==============================================================================
+
+
+# ==============================================================================
+# INTEGRAÇÃO COM KUBERNETES (FUTURO)
+# ==============================================================================
+# 
+# Quando migrar para K8s:
+# 
+# 1. Gerar manifests:
+#    kompose convert -f docker-compose.yml
+# 
+# 2. Ou usar Helm:
+#    helm create material-control
+#    # Editar values.yaml com configs do docker-compose
+# 
+# 3. Deploy:
+#    kubectl apply -f manifests/
+#    # ou
+#    helm install material-control ./chart
+# 
+# Vantagens do K8s:
+# - Auto-scaling
+# - Self-healing
+# - Load balancing
+# - Rolling updates
+# - Secrets management
+# 
+# ==============================================================================
