@@ -30,7 +30,7 @@ FROM python:3.11-slim as builder
 # - Inclui ferramentas essenciais
 # - Boa para builds
 
-LABEL maintainer="seu-email@empresa.com"
+LABEL maintainer="eliezerpiresti@gmail.com"
 LABEL version="1.0"
 LABEL description="Backend API - Sistema de Controle de Materiais"
 
