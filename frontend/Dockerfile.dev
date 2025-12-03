@@ -1,0 +1,27 @@
+# ==============================================================================
+# Dockerfile.dev - Frontend Development
+# ==============================================================================
+# Dockerfile específico para desenvolvimento com hot reload
+
+FROM node:20-alpine as development
+
+WORKDIR /app
+
+# Instalar dependências do sistema
+RUN apk add --no-cache git
+
+# Copiar package files
+COPY package*.json ./
+
+# Instalar TODAS as dependências (incluindo dev)
+RUN npm install
+
+# Copiar código (será sobrescrito por volume mount)
+COPY . .
+
+# Expor portas
+EXPOSE 5173
+EXPOSE 24678
+
+# Comando de desenvolvimento
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
