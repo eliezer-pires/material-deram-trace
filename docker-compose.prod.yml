@@ -1,0 +1,344 @@
+# ==============================================================================
+# docker-compose.prod.yml - AMBIENTE DE PRODUÇÃO
+# ==============================================================================
+#
+# Uso:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Características:
+# - Build totalmente otimizado
+# - Dados persistentes com backup
+# - Logs em arquivo
+# - Replicas/HA (se necessário)
+# - Secrets externos (não hardcoded)
+# - Monitoramento completo
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  # ==========================================================================
+  # DATABASE - Configurações de Produção
+  # ==========================================================================
+  db:
+    image: postgres:15-alpine
+
+    environment:
+      POSTGRES_DB: material_control
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # OBRIGATÓRIO via .env
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=pt_BR.UTF-8"
+
+    # NÃO expor porta publicamente (apenas rede interna)
+    # ports:
+    #   - "5432:5432"  # COMENTADO em produção!
+
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./backups:/backups # Pasta de backups
+
+    # Recursos dedicados
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "1"
+          memory: 1G
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+
+    # Backup automático (cron)
+    # labels:
+    #   - "backup.enable=true"
+    #   - "backup.schedule=0 2 * * *"  # 2h da manhã todos os dias
+
+  # ==========================================================================
+  # BACKEND - Configurações de Produção
+  # ==========================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+
+    image: material-backend:${VERSION:-latest}
+
+    environment:
+      # Database
+      DATABASE_URL: ${DATABASE_URL}
+
+      # Security - OBRIGATÓRIO usar secrets
+      SECRET_KEY: ${SECRET_KEY}
+
+      # Config
+      LOG_LEVEL: WARNING
+      ENVIRONMENT: production
+
+      # CORS restritivo
+      CORS_ORIGINS: https://seudominio.com,https://www.seudominio.com
+
+      # Performance
+      WORKERS: ${WORKERS:-4}
+
+    # NÃO expor porta diretamente (usar Nginx reverse proxy)
+    # ports:
+    #   - "8000:8000"
+
+    volumes:
+      - backend_logs_prod:/app/logs
+
+    # Gunicorn com múltiplos workers
+    command: >
+      gunicorn main:app
+      --workers ${WORKERS:-4}
+      --worker-class uvicorn.workers.UvicornWorker
+      --bind 0.0.0.0:8000
+      --timeout 60
+      --graceful-timeout 30
+      --access-logfile /app/logs/access.log
+      --error-logfile /app/logs/error.log
+      --log-level warning
+
+    # Múltiplas réplicas (opcional, se infra suportar)
+    deploy:
+      replicas: ${BACKEND_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ==========================================================================
+  # FRONTEND - Configurações de Produção
+  # ==========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+
+    image: material-frontend:${VERSION:-latest}
+
+    environment:
+      VITE_API_URL: https://api.seudominio.com
+      NODE_ENV: production
+
+    # NÃO expor porta (usar Nginx externo)
+    # ports:
+    #   - "80:80"
+
+    deploy:
+      replicas: ${FRONTEND_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      restart_policy:
+        condition: any
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  # ==========================================================================
+  # NGINX - Reverse Proxy e Load Balancer
+  # ==========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: material_nginx_prod
+
+    volumes:
+      - ./nginx/nginx-prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro # Certificados SSL
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    depends_on:
+      - backend
+      - frontend
+
+    networks:
+      - material_network
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ==========================================================================
+  # REDIS - Cache (produção)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: material_redis_prod
+
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+
+    volumes:
+      - redis_data_prod:/data
+
+    networks:
+      - material_network
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # ==========================================================================
+  # MONITORING - Prometheus
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: material_prometheus_prod
+
+    volumes:
+      - ./monitoring/prometheus-prod.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_prod:/prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=90d"
+
+    networks:
+      - material_network
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
+
+  # ==========================================================================
+  # MONITORING - Grafana
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: material_grafana_prod
+
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+
+    volumes:
+      - grafana_data_prod:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
+
+    networks:
+      - material_network
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 512M
+
+  # ==========================================================================
+  # BACKUP - Automação
+  # ==========================================================================
+  backup:
+    image: postgres:15-alpine
+    container_name: material_backup_prod
+
+    environment:
+      PGHOST: db
+      PGUSER: ${DB_USER:-postgres}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: material_control
+
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+
+    networks:
+      - material_network
+
+    # Rodar diariamente às 2h
+    entrypoint: /bin/sh -c "crond -f -d 8"
+    command: echo "0 2 * * * /backup.sh" | crontab - && crond -f
+
+# ==============================================================================
+# VOLUMES DE PRODUÇÃO
+# ==============================================================================
+volumes:
+  postgres_data_prod:
+    driver: local
+  backend_logs_prod:
+    driver: local
+  nginx_cache:
+    driver: local
+  nginx_logs:
+    driver: local
+  redis_data_prod:
+    driver: local
+  prometheus_data_prod:
+    driver: local
+  grafana_data_prod:
+    driver: local
+# ==============================================================================
+# SECRETS (usar Docker Secrets ou .env)
+# ==============================================================================
+# Criar arquivo .env.prod com:
+#
+# DB_USER=postgres
+# DB_PASSWORD=sua-senha-super-segura
+# DATABASE_URL=postgresql://postgres:senha@db:5432/material_control
+# SECRET_KEY=sua-chave-jwt-super-segura-minimo-32-caracteres
+# REDIS_PASSWORD=sua-senha-redis
+# GRAFANA_PASSWORD=sua-senha-grafana
+# VERSION=1.0.0
+# WORKERS=4
+# BACKEND_REPLICAS=2
+# FRONTEND_REPLICAS=2
+#
+# ==============================================================================
+
+# ==============================================================================
+# COMANDOS ÚTEIS - PRODUÇÃO
+# ==============================================================================
+#
+# Deploy inicial:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Update (zero downtime):
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --build backend
+#
+# Rollback:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d material-backend:1.0.0
+#
+# Ver logs:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=100
+#
+# Backup manual:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec backup /backup.sh
+#
+# Monitorar recursos:
+#   docker stats
+#
+# ==============================================================================

@@ -1,0 +1,169 @@
+# ==============================================================================
+# docker-compose.dev.yml - AMBIENTE DE DESENVOLVIMENTO
+# ==============================================================================
+#
+# Uso:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Características:
+# - Hot reload habilitado (código local montado)
+# - Debug mode
+# - Logs verbosos
+# - Sem otimizações de build
+# - Portas expostas para debug
+# ==============================================================================
+
+services:
+  db:
+    environment:
+      # Logs mais verbosos para debug
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=pt_BR.UTF-8 --debug"
+
+    # Expor porta para ferramentas de debug (DBeaver, pgAdmin)
+    ports:
+      - "5432:5432"
+
+    # Dados NÃO persistem (facilitam testes limpos)
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development # Target específico para dev
+
+    environment:
+      # Database
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/material_control_dev
+
+      # Security (chaves simples para dev)
+      - SECRET_KEY=dev-secret-key-not-for-production
+
+      # Debug
+      - LOG_LEVEL=DEBUG
+      - ENVIRONMENT=development
+      - DEBUG=True
+
+      # CORS permissivo em dev
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http//localhost:80
+
+      # Python debug
+      - PYTHONNUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+
+      # Portas extras para debug
+    ports:
+      - "8000:8000" # Porta principal - API
+      - "5678:5678" # Porta para debug remoto (ex: debugpy)
+
+    # Montar código local para hot reload
+    volumes:
+      - ./backend:/app
+      - /app/venv # Não montar venv (usa o do container)
+      - backend_logs_dev:/app/logs
+
+    # Comando de dev com auto-reload
+    command: uvicorn main:app --reload --host 0.0.0.0 --port 8000 --log-level debug
+
+    # Health check mais frequente
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    # Dev server do Vite ao invés de Nginx
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev # Dockerfile específico para dev
+      target: development
+
+    environment:
+      # API URL
+      - VITE_API_URL=http://localhost:8000
+
+      # Vite
+      - NODE_ENV=development
+
+      # Debug
+      - DEBUG=true
+
+    ports:
+      - "5173:5173" # Vite dev server
+      - "24678:24678" #  Vite HMR (Hot Module Replacement)
+
+    # Montar código fone para HOT RELOAD
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tailwind.config.ts:/app/vite.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - /app/node_modules # Não monstar node_moduloes (usa o do container).
+
+    # Comando dev do Vite
+    command: npm run dev -- --host 0.0.0.0
+
+    # Frontend não precisa esperar backend em dev
+    depends_on: []
+
+  # ==========================================================================
+  # MAILHOG - Email testing (opcional, útil em dev)
+  # ==========================================================================
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: material_mailhog_dev
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    networks:
+      - material_network
+
+  # ==========================================================================
+  # ADMINER - Database UI (opcional, útil em dev)
+  # ==========================================================================
+  adminer:
+    image: adminer:latest
+    container_name: material_adminer_dev
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "8080:8080"
+    networks:
+      - material_network
+    depends_on:
+      - db
+
+# ==============================================================================
+# VOLUMES DE DESENVOLVIMENTO
+# ==============================================================================
+volumes:
+  postgres_data_dev:
+    driver: local
+  backend_logs_dev:
+    driver: local
+# ==============================================================================
+# COMANDOS ÚTEIS - DESENVOLVIMENTO
+# ==============================================================================
+#
+# Iniciar ambiente de desenvolvimento:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Ver logs em tempo real:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml logs -f
+#
+# Rebuild específico:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml build backend
+#
+# Executar comando no backend:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml exec backend bash
+#
+# Parar tudo:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml down
+#
+# Limpar volumes (resetar dados):
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml down -v
+#
+# ==============================================================================
